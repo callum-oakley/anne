@@ -15,6 +15,3 @@
 **/*.rs.bk
 
 # End of https://www.gitignore.io/api/rust
-
-/tests/content/fonts/
-/tests/build/

@@ -70,8 +70,10 @@ impl Page {
     }
 }
 
-fn swap_prefix(a: &Path, b: &Path, path: &Path) -> Result<PathBuf> {
-    Ok(b.join(path.strip_prefix(a)?))
+#[derive(Debug, Serialize)]
+struct Focus<'a> {
+    dot: &'a Page,
+    root: &'a HashMap<String, Page>,
 }
 
 fn is_md(path: &Path) -> bool {
@@ -79,9 +81,9 @@ fn is_md(path: &Path) -> bool {
 }
 
 fn run() -> Result<()> {
-    let template_dir = Path::new("tests/templates");
-    let content_dir = Path::new("tests/content");
-    let build_dir = Path::new("tests/build");
+    let template_dir = Path::new("templates");
+    let content_dir = Path::new("content");
+    let build_dir = Path::new("build");
 
     let mut templates = Handlebars::new();
     for entry in walkdir::WalkDir::new(template_dir) {
@@ -103,27 +105,46 @@ fn run() -> Result<()> {
 
     for entry in walkdir::WalkDir::new(content_dir).min_depth(1) {
         let entry = entry?;
-        let dest = swap_prefix(content_dir, build_dir, entry.path())?;
 
         if entry.file_type().is_dir() {
-            fs::create_dir(dest)?;
+            fs::create_dir(build_dir.join(entry.path().strip_prefix(content_dir)?))?;
         } else if is_md(entry.path()) {
             pages.insert(
-                entry.path().to_owned(),
-                Page::new(entry.path().to_owned(), dest.with_extension("html"))
-                    .map_err(|err| format_err!("{}: {}", entry.path().display(), err))?,
+                entry
+                    .path()
+                    .strip_prefix(content_dir)?
+                    .to_str()
+                    .unwrap()
+                    .to_owned(),
+                Page::new(
+                    entry.path().to_owned(),
+                    entry
+                        .path()
+                        .strip_prefix(content_dir)?
+                        .with_extension("html")
+                        .to_owned(),
+                )
+                .map_err(|err| format_err!("{}: {}", entry.path().display(), err))?,
             );
         } else {
+            let dest = build_dir.join(entry.path().strip_prefix(content_dir)?);
             println!("{} -> {}", entry.path().display(), dest.display());
             fs::hard_link(entry.path(), dest)?;
         }
     }
 
     for (_, page) in &pages {
-        println!("{} -> {}", page.source.display(), page.path.display());
+        let dest = build_dir.join(page.path.to_owned());
+        println!("{} -> {}", page.source.display(), dest.display());
         fs::write(
-            page.path.to_owned(),
-            templates.render(&page.template, page)?,
+            dest,
+            templates.render(
+                &page.template,
+                &Focus {
+                    dot: page,
+                    root: &pages,
+                },
+            )?,
         )?;
     }
 
