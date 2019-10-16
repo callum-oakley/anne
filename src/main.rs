@@ -121,7 +121,7 @@ fn run() -> Result<()> {
                     entry
                         .path()
                         .strip_prefix(content_dir)?
-                        .with_extension("html")
+                        .with_extension("")
                         .to_owned(),
                 )
                 .map_err(|err| format_err!("{}: {}", entry.path().display(), err))?,
@@ -134,7 +134,7 @@ fn run() -> Result<()> {
     }
 
     for (_, page) in &pages {
-        let dest = build_dir.join(page.path.to_owned());
+        let dest = build_dir.join(page.path.with_extension("html").to_owned());
         println!("{} -> {}", page.source.display(), dest.display());
         fs::write(
             dest,
