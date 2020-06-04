@@ -35,7 +35,7 @@ impl Page {
         }?;
 
         let mut content = String::new();
-        html::push_html(&mut content, parser);
+        html::push_html(&mut content, Self::decorate(parser));
 
         Ok(Page {
             content,
@@ -46,27 +46,68 @@ impl Page {
         })
     }
 
-    fn read_metadata(parser: &mut Parser) -> Result<toml::Value> {
-        if let Some(Event::Start(Tag::CodeBlock(_))) = parser.next() {
+    fn read_metadata<'a>(events: &mut impl Iterator<Item = Event<'a>>) -> Result<toml::Value> {
+        if let Some(Event::Start(Tag::CodeBlock(_))) = events.next() {
             // Consume the event, but do nothing with it as long as it is the right shape.
         } else {
             return Err(err_msg("page must begin with a fenced code block"));
         };
 
-        let metadata = if let Some(Event::Text(CowStr::Borrowed(s))) = parser.next() {
+        let metadata = if let Some(Event::Text(CowStr::Borrowed(s))) = events.next() {
             s.parse::<toml::Value>()
                 .map_err(|err| format_err!("failed to parse metadata as toml ({})", err,))
         } else {
             Err(err_msg("expected code block to contain borrowed text"))
         }?;
 
-        if let Some(Event::End(Tag::CodeBlock(_))) = parser.next() {
+        if let Some(Event::End(Tag::CodeBlock(_))) = events.next() {
             // Consume the event, but do nothing with it as long as it is the right shape.
         } else {
             return Err(err_msg("expected end of code block"));
         };
 
         Ok(metadata)
+    }
+
+    fn decorate<'a>(events: impl Iterator<Item = Event<'a>>) -> impl Iterator<Item = Event<'a>> {
+        Decorate::new(events)
+    }
+}
+
+struct Decorate<I> {
+    inner: I,
+    anchor: u8,
+}
+
+impl<I> Decorate<I> {
+    fn new(inner: I) -> Decorate<I> {
+        Decorate { inner, anchor: 0 }
+    }
+}
+
+impl<'a, I> Iterator for Decorate<I>
+where
+    I: Iterator<Item = Event<'a>>,
+{
+    type Item = Event<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let event = self.inner.next();
+        match event {
+            Some(Event::Start(Tag::Heading(2))) => {
+                let h2a = Event::Html(
+                    format!(
+                        r##"<h2 id="subheading{i}"><a href="#subheading{i}">"##,
+                        i = self.anchor
+                    )
+                    .into(),
+                );
+                self.anchor += 1;
+                Some(h2a)
+            }
+            Some(Event::End(Tag::Heading(2))) => Some(Event::Html("</a></h2>".into())),
+            _ => event,
+        }
     }
 }
 
